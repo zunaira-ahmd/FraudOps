@@ -128,7 +128,7 @@ def preprocess(
 
     # Categoricals: mode imputation
     for col in cat_cols:
-        df[col] = df[col].fillna(df[col].mode()[0])     
+        df[col] = df[col].fillna(df[col].mode()[0])
 
     print(f"Imputed {len(num_cols)} numeric cols with median")
     print(f"Imputed {len(cat_cols)} categorical cols with mode")
@@ -623,8 +623,6 @@ def FraudOps_pipeline(
         identity_path=identity_path,
     )
     ingest_task.set_retry(num_retries=2, backoff_duration="30s")
-    # Mount the data directory from the host node into the pod
-    ingest_task.add_node_selector_constraint("kubernetes.io/os", "linux")
 
     # ── Step 2: Validate ──────────────────────────────────────────────
     validate_task = validate(
