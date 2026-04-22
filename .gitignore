@@ -11,3 +11,6 @@ wheels/
 
 
 fraud-ops.pem
+instructions.md
+data/*.csv
+
