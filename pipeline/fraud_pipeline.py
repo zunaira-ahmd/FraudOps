@@ -7,7 +7,7 @@ from kfp.dsl import Dataset, Input, Model, Output, Metrics
 # ─────────────────────────────────────────────
 @dsl.component(
     base_image="python:3.11.9-slim",
-    packages_to_install=["pandas", "numpy"],
+    packages_to_install=["pandas", "numpy", "boto3", "requests"],
 )
 def ingest(
     transaction_path: str,
@@ -15,24 +15,58 @@ def ingest(
     output_data: Output[Dataset],
 ):
     """
-    Reads transaction and identity CSVs from the EC2 instance's local
-    filesystem (mounted into the pod via hostPath), merges them on
-    TransactionID, and writes a single merged CSV for downstream steps.
+    Reads transaction and identity CSVs. Supports local hostPath files, 
+    HTTP/HTTPS URLs, and MinIO/S3 paths (e.g. minio://bucket/file.csv).
+    Merges them on TransactionID, and writes a single merged CSV to KFP's artifact system.
     """
+    import os
     import pandas as pd
+    import requests
+    from urllib.parse import urlparse
 
-    print(f"Reading transaction data from: {transaction_path}")
-    trans = pd.read_csv(transaction_path)
+    def download_data(path, local_dest):
+        if path.startswith("http://") or path.startswith("https://"):
+            print(f"Downloading from URL: {path}")
+            response = requests.get(path)
+            response.raise_for_status()
+            with open(local_dest, "wb") as f:
+                f.write(response.content)
+            return local_dest
+        elif path.startswith("s3://") or path.startswith("minio://"):
+            import boto3
+            print(f"Downloading from S3/MinIO: {path}")
+            parsed = urlparse(path)
+            bucket = parsed.netloc
+            key = parsed.path.lstrip('/')
+            
+            # Use default Kubeflow MinIO settings if env vars are missing
+            s3 = boto3.client(
+                's3',
+                endpoint_url=os.environ.get("S3_ENDPOINT", "http://minio-service.kubeflow.svc.cluster.local:9000"),
+                aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID", "minio"),
+                aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY", "minio123"),
+            )
+            s3.download_file(bucket, key, local_dest)
+            return local_dest
+        else:
+            print(f"Using local path: {path}")
+            return path
 
-    print(f"Reading identity data from: {identity_path}")
-    identity = pd.read_csv(identity_path)
+    trans_file = download_data(transaction_path, "/tmp/transaction.csv")
+    ident_file = download_data(identity_path, "/tmp/identity.csv")
+
+    print("Reading transaction data...")
+    trans = pd.read_csv(trans_file)
+
+    print("Reading identity data...")
+    identity = pd.read_csv(ident_file)
 
     print("Merging on TransactionID...")
     df = trans.merge(identity, on="TransactionID", how="left")
 
     print(f"Merged shape: {df.shape}")
     df.to_csv(output_data.path, index=False)
-    print("Ingestion complete.")
+    print("Ingestion complete. Data is now in KFP artifacts.")
 
 
 # ─────────────────────────────────────────────
@@ -594,16 +628,16 @@ def evaluate(
     name="FraudOps Pipeline",
     description=(
         "End-to-end fraud detection pipeline on the IEEE CIS dataset. "
-        "Local filesystem storage only — no S3 dependency. "
+        "Supports MinIO/S3 or local filesystem inputs. "
         "Covers: data ingestion, validation, preprocessing, feature engineering, "
         "training (XGBoost / LightGBM / Hybrid RF), evaluation, SHAP explainability, "
         "and conditional deployment."
     ),
 )
 def FraudOps_pipeline(
-    # ── Data paths (local EC2 filesystem) ────────────────────────────
-    transaction_path: str = "/home/ubuntu/FraudOps/data/train_transaction.csv",
-    identity_path: str = "/home/ubuntu/FraudOps/data/train_identity.csv",
+    # ── Data paths (MinIO / S3 / HTTP / Local) ────────────────────────
+    transaction_path: str = "minio://fraudops-data/train_transaction.csv",
+    identity_path: str = "minio://fraudops-data/train_identity.csv",
     # ── Artifact output directory (local EC2 filesystem) ─────────────
     artifacts_dir: str = "/home/ubuntu/FraudOps/artifacts",
     # ── Run configuration ─────────────────────────────────────────────
