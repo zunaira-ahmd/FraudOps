@@ -11,7 +11,7 @@ RUN pip install uv
 COPY pyproject.toml .
 RUN uv sync
 
-COPY app.py .
+COPY docker/inference/app.py .
 
 ENV ARTIFACTS_DIR=/home/ubuntu/FraudOps/artifacts
 ENV MODEL_PREFIX=xgb_
