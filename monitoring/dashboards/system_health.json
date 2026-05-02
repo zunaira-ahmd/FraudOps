@@ -1,0 +1,92 @@
+{
+    "title": "FraudOps System Health",
+    "tags": [
+        "fraudops",
+        "system"
+    ],
+    "timezone": "browser",
+    "panels": [
+        {
+            "title": "API Request Rate",
+            "type": "timeseries",
+            "gridPos": {
+                "x": 0,
+                "y": 0,
+                "w": 12,
+                "h": 8
+            },
+            "targets": [
+                {
+                    "expr": "rate(fraudops_requests_total[5m])",
+                    "legendFormat": "{{endpoint}} - {{status}}"
+                }
+            ]
+        },
+        {
+            "title": "API Latency (95th percentile)",
+            "type": "timeseries",
+            "gridPos": {
+                "x": 12,
+                "y": 0,
+                "w": 12,
+                "h": 8
+            },
+            "targets": [
+                {
+                    "expr": "histogram_quantile(0.95, rate(fraudops_request_latency_seconds_bucket[5m]))",
+                    "legendFormat": "p95 latency"
+                }
+            ]
+        },
+        {
+            "title": "Error Rate",
+            "type": "timeseries",
+            "gridPos": {
+                "x": 0,
+                "y": 8,
+                "w": 12,
+                "h": 8
+            },
+            "targets": [
+                {
+                    "expr": "rate(fraudops_requests_total{status=\"error\"}[5m])",
+                    "legendFormat": "error rate"
+                }
+            ]
+        },
+        {
+            "title": "CPU Usage %",
+            "type": "timeseries",
+            "gridPos": {
+                "x": 12,
+                "y": 8,
+                "w": 12,
+                "h": 8
+            },
+            "targets": [
+                {
+                    "expr": "100 - (avg by(instance)(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+                    "legendFormat": "CPU %"
+                }
+            ]
+        },
+        {
+            "title": "Memory Usage %",
+            "type": "timeseries",
+            "gridPos": {
+                "x": 0,
+                "y": 16,
+                "w": 12,
+                "h": 8
+            },
+            "targets": [
+                {
+                    "expr": "100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)",
+                    "legendFormat": "Memory %"
+                }
+            ]
+        }
+    ],
+    "schemaVersion": 36,
+    "version": 1
+}

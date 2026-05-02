@@ -1,0 +1,76 @@
+{
+    "title": "FraudOps Data Drift",
+    "tags": [
+        "fraudops",
+        "drift"
+    ],
+    "timezone": "browser",
+    "panels": [
+        {
+            "title": "TransactionAmt Drift Score",
+            "type": "timeseries",
+            "gridPos": {
+                "x": 0,
+                "y": 0,
+                "w": 12,
+                "h": 8
+            },
+            "targets": [
+                {
+                    "expr": "fraudops_feature_drift_TransactionAmt",
+                    "legendFormat": "TransactionAmt drift"
+                }
+            ]
+        },
+        {
+            "title": "card1 Drift Score",
+            "type": "timeseries",
+            "gridPos": {
+                "x": 12,
+                "y": 0,
+                "w": 12,
+                "h": 8
+            },
+            "targets": [
+                {
+                    "expr": "fraudops_feature_drift_card1",
+                    "legendFormat": "card1 drift"
+                }
+            ]
+        },
+        {
+            "title": "addr1 Drift Score",
+            "type": "timeseries",
+            "gridPos": {
+                "x": 0,
+                "y": 8,
+                "w": 12,
+                "h": 8
+            },
+            "targets": [
+                {
+                    "expr": "fraudops_feature_drift_addr1",
+                    "legendFormat": "addr1 drift"
+                }
+            ]
+        },
+        {
+            "title": "Missing Value Rate",
+            "type": "timeseries",
+            "gridPos": {
+                "x": 12,
+                "y": 8,
+                "w": 12,
+                "h": 8
+            },
+            "targets": [
+                {
+                    "expr": "fraudops_missing_value_rate",
+                    "legendFormat": "missing value rate"
+                }
+            ]
+        }
+    ],
+    "schemaVersion": 36,
+    "version": 1
+}
