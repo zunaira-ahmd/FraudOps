@@ -74,19 +74,19 @@ jobs:
 
       - name: Build & push training image
         run: |
-          docker build -t $ECR_REGISTRY/FraudOps-training:${{ github.sha }} \
-                       -t $ECR_REGISTRY/FraudOps-training:latest \
+          docker build -t $ECR_REGISTRY/fraudops-training:${{ github.sha }} \
+                       -t $ECR_REGISTRY/fraudops-training:latest \
                        -f docker/training/training.dockerfile .
-          docker push $ECR_REGISTRY/FraudOps-training:${{ github.sha }}
-          docker push $ECR_REGISTRY/FraudOps-training:latest
+          docker push $ECR_REGISTRY/fraudops-training:${{ github.sha }}
+          docker push $ECR_REGISTRY/fraudops-training:latest
 
       - name: Build & push inference image
         run: |
-          docker build -t $ECR_REGISTRY/FraudOps-inference:${{ github.sha }} \
-                       -t $ECR_REGISTRY/FraudOps-inference:latest \
+          docker build -t $ECR_REGISTRY/fraudops-inference:${{ github.sha }} \
+                       -t $ECR_REGISTRY/fraudops-inference:latest \
                        -f docker/inference/inference.dockerfile .
-          docker push $ECR_REGISTRY/FraudOps-inference:${{ github.sha }}
-          docker push $ECR_REGISTRY/FraudOps-inference:latest
+          docker push $ECR_REGISTRY/fraudops-inference:${{ github.sha }}
+          docker push $ECR_REGISTRY/fraudops-inference:latest
 
   # ─── STAGE 3: DEPLOY ───────────────────────────────────────
   deploy:
