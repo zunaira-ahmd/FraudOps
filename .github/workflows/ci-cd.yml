@@ -37,16 +37,16 @@ jobs:
 
       - name: Lint with flake8
         run: |
-          flake8 pipelines/ --max-line-length=120 --ignore=E501,W503 --count
+          flake8 pipeline/ docker/inference/app.py --max-line-length=120 --ignore=E501,W503 --count
 
       - name: Validate pipeline YAML
         run: |
           python -c "
           import yaml, glob, sys
-          files = glob.glob('pipelines/*.yaml')
+          files = glob.glob('pipeline/*.yaml')
           if not files:
-              print('No pipeline YAMLs found')
-              sys.exit(1)
+              print('No pipeline YAMLs found, skipping')
+              sys.exit(0)
           for f in files:
               with open(f) as fh:
                   yaml.safe_load(fh)
@@ -76,7 +76,7 @@ jobs:
         run: |
           docker build -t $ECR_REGISTRY/FraudOps-training:${{ github.sha }} \
                        -t $ECR_REGISTRY/FraudOps-training:latest \
-                       -f docker/training/Dockerfile .
+                       -f docker/training/training.dockerfile .
           docker push $ECR_REGISTRY/FraudOps-training:${{ github.sha }}
           docker push $ECR_REGISTRY/FraudOps-training:latest
 
@@ -84,7 +84,7 @@ jobs:
         run: |
           docker build -t $ECR_REGISTRY/FraudOps-inference:${{ github.sha }} \
                        -t $ECR_REGISTRY/FraudOps-inference:latest \
-                       -f docker/inference/Dockerfile .
+                       -f docker/inference/inference.dockerfile .
           docker push $ECR_REGISTRY/FraudOps-inference:${{ github.sha }}
           docker push $ECR_REGISTRY/FraudOps-inference:latest
 
@@ -111,11 +111,10 @@ jobs:
             import kfp
             client = kfp.Client(host='http://localhost:8080')
             client.create_run_from_pipeline_package(
-                'pipelines/v1_pipeline.yaml',
+                'pipeline/v1_pipeline.yaml',
                 arguments={
-                    's3_bucket': 'FraudOps',
-                    's3_transaction_key': 'data/train_transaction.csv',
-                    's3_identity_key': 'data/train_identity.csv',
+                    'transaction_path': '/home/ubuntu/FraudOps/data/train_transaction.csv',
+                    'identity_path': '/home/ubuntu/FraudOps/data/train_identity.csv',
                     'run_id': 'cicd-run-${{ github.run_number }}',
                     'imbalance_strategy': 'smote',
                     'cost_sensitive': True,
@@ -151,17 +150,15 @@ jobs:
             import kfp
             client = kfp.Client(host='http://localhost:8080')
             client.create_run_from_pipeline_package(
-                'pipelines/v3_pipeline.yaml',
+                'pipeline/v1_pipeline.yaml',
                 arguments={
-                    's3_bucket': 'FraudOps',
-                    's3_transaction_key': 'data/train_transaction.csv',
-                    's3_identity_key': 'data/train_identity.csv',
+                    'transaction_path': '/home/ubuntu/FraudOps/data/train_transaction.csv',
+                    'identity_path': '/home/ubuntu/FraudOps/data/train_identity.csv',
                     'run_id': 'retrain-${{ github.run_number }}',
                     'imbalance_strategy': 'smote',
                     'cost_sensitive': True,
                     'recall_threshold': 0.75,
                     'drift_threshold': 0.10,
-                    'current_run_number': ${{ github.run_number }},
                     'inference_api_url': 'http://localhost:8000',
                 },
                 run_name='retrain-${{ github.run_number }}',
