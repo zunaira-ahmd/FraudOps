@@ -15,7 +15,7 @@ def ingest(
     output_data: Output[Dataset],
 ):
     """
-    Reads transaction and identity CSVs. Supports local hostPath files, 
+    Reads transaction and identity CSVs. Supports local hostPath files,
     HTTP/HTTPS URLs, and MinIO/S3 paths (e.g. minio://bucket/file.csv).
     Merges them on TransactionID, and writes a single merged CSV to KFP's artifact system.
     """
@@ -38,7 +38,7 @@ def ingest(
             parsed = urlparse(path)
             bucket = parsed.netloc
             key = parsed.path.lstrip('/')
-            
+
             # Use default Kubeflow MinIO settings if env vars are missing
             s3 = boto3.client(
                 's3',
@@ -289,11 +289,10 @@ def train(
     """
     import os
     import joblib
-    import numpy as np
     import pandas as pd
     from imblearn.over_sampling import SMOTE
     from imblearn.under_sampling import RandomUnderSampler
-    from sklearn.ensemble import RandomForestClassifier, VotingClassifier
+    from sklearn.ensemble import RandomForestClassifier
     from sklearn.feature_selection import SelectFromModel
     from sklearn.pipeline import Pipeline
     from xgboost import XGBClassifier
@@ -512,15 +511,15 @@ def evaluate(
         print(f"  F1-Score     : {f:.4f}")
         print(f"  AUC-ROC      : {auc:.4f}")
         print(f"  False Pos Rate: {fpr:.4f}")
-        print(f"  Confusion Matrix:")
+        print("  Confusion Matrix:")
         print(f"    TP={tp}  FP={fp}")
         print(f"    FN={fn}  TN={tn}")
 
         # Business impact summary
-        fraud_loss_prevented = tp * 1000       # assume $1000 avg fraud loss
-        false_alarm_cost     = fp * 10         # assume $10 per false alarm review cost
-        net_benefit          = fraud_loss_prevented - false_alarm_cost
-        print(f"  Business Impact (estimated):")
+        fraud_loss_prevented = tp * 1000  # assume $1000 avg fraud loss
+        false_alarm_cost = fp * 10        # assume $10 per false alarm review cost
+        net_benefit = fraud_loss_prevented - false_alarm_cost
+        print("  Business Impact (estimated):")
         print(f"    Fraud losses prevented : ${fraud_loss_prevented:,}")
         print(f"    False alarm costs      : ${false_alarm_cost:,}")
         print(f"    Net benefit            : ${net_benefit:,}")
@@ -611,13 +610,13 @@ def evaluate(
 
     print("\n" + "=" * 55)
     if deploy:
-        print(f"DEPLOY DECISION: PASS")
+        print("DEPLOY DECISION: PASS")
         print(f"  Recall {best_recall:.4f} >= threshold {recall_threshold}")
         print(f"  Model '{best_model_name}' is approved for deployment.")
     else:
-        print(f"DEPLOY DECISION: FAIL")
+        print("DEPLOY DECISION: FAIL")
         print(f"  Recall {best_recall:.4f} < threshold {recall_threshold}")
-        print(f"  Pipeline flagged for review. Retraining recommended.")
+        print("  Pipeline flagged for review. Retraining recommended.")
     print("=" * 55)
 
 
@@ -713,4 +712,4 @@ if __name__ == "__main__":
         pipeline_func=FraudOps_pipeline,
         package_path="pipeline/v1_pipeline.yaml",
     )
-    print("Pipeline compiled to pipeline/v1_pipeline.yaml")
+    print("Pipeline compiled to pipeline/v1_pipeline.yaml")

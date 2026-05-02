@@ -19,7 +19,6 @@ import logging
 from typing import Optional
 
 import joblib
-import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -45,7 +44,7 @@ log = logging.getLogger("fraudops")
 # Config
 # ─────────────────────────────────────────────
 ARTIFACTS_DIR = os.getenv("ARTIFACTS_DIR", "/home/ubuntu/FraudOps/artifacts")
-MODEL_PREFIX   = os.getenv("MODEL_PREFIX", "xgb_")   # which model to serve
+MODEL_PREFIX = os.getenv("MODEL_PREFIX", "xgb_")  # which model to serve
 
 # ─────────────────────────────────────────────
 # Prometheus metrics
@@ -76,20 +75,22 @@ PREDICTION_CONFIDENCE = Histogram(
 )
 
 # Model-level metrics (updated by pipeline after each run)
-MODEL_RECALL          = Gauge("fraudops_model_recall",          "Fraud recall of deployed model")
-MODEL_AUC_ROC         = Gauge("fraudops_model_auc_roc",         "AUC-ROC of deployed model")
-MODEL_F1              = Gauge("fraudops_model_f1",              "F1-score of deployed model")
-MODEL_FPR             = Gauge("fraudops_model_false_positive_rate", "False positive rate")
+MODEL_RECALL = Gauge("fraudops_model_recall", "Fraud recall of deployed model")
+MODEL_AUC_ROC = Gauge("fraudops_model_auc_roc", "AUC-ROC of deployed model")
+MODEL_F1 = Gauge("fraudops_model_f1", "F1-score of deployed model")
+MODEL_FPR = Gauge("fraudops_model_false_positive_rate", "False positive rate")
 
 # Data-level metrics
-MISSING_VALUE_RATE    = Gauge("fraudops_missing_value_rate",    "Avg missing value rate in input data")
-FEATURE_DRIFT_AMT     = Gauge("fraudops_feature_drift_TransactionAmt", "Drift score for TransactionAmt")
-FEATURE_DRIFT_CARD1   = Gauge("fraudops_feature_drift_card1",  "Drift score for card1")
-FEATURE_DRIFT_ADDR1   = Gauge("fraudops_feature_drift_addr1",  "Drift score for addr1")
+MISSING_VALUE_RATE = Gauge("fraudops_missing_value_rate", "Avg missing value rate in input data")
+FEATURE_DRIFT_AMT = Gauge("fraudops_feature_drift_TransactionAmt", "Drift score for TransactionAmt")
+FEATURE_DRIFT_CARD1 = Gauge("fraudops_feature_drift_card1", "Drift score for card1")
+FEATURE_DRIFT_ADDR1 = Gauge("fraudops_feature_drift_addr1", "Drift score for addr1")
 
 # ─────────────────────────────────────────────
 # Model loader
 # ─────────────────────────────────────────────
+
+
 def load_latest_model():
     """
     Scans ARTIFACTS_DIR for files matching MODEL_PREFIX*.joblib
@@ -113,6 +114,8 @@ model, model_path = load_latest_model()
 # ─────────────────────────────────────────────
 # Request / Response schemas
 # ─────────────────────────────────────────────
+
+
 class TransactionFeatures(BaseModel):
     """
     Accepts any transaction feature as an optional float.
@@ -126,22 +129,22 @@ class TransactionFeatures(BaseModel):
 
 
 class MetricsPayload(BaseModel):
-    recall:             float
-    auc_roc:            float
-    f1:                 float
+    recall: float
+    auc_roc: float
+    f1: float
     false_positive_rate: float
-    feature_drift:      dict
+    feature_drift: dict
     missing_value_rate: float
 
 
 class PredictResponse(BaseModel):
-    is_fraud:           bool
-    fraud_probability:  float
-    model_path:         Optional[str]
+    is_fraud: bool
+    fraud_probability: float
+    model_path: Optional[str]
 
 
 class HealthResponse(BaseModel):
-    status:     str
+    status: str
     model_loaded: bool
     model_path: Optional[str]
 
@@ -253,4 +256,4 @@ def reload_model():
 @app.get("/metrics")
 def metrics():
     """Prometheus scrape endpoint."""
-    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
