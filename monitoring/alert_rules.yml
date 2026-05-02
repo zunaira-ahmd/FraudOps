@@ -1,0 +1,39 @@
+groups:
+  - name: fraudops_alerts
+    rules:
+
+      - alert: FraudRecallBelowThreshold
+        expr: fraudops_model_recall < 0.75
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Fraud recall dropped below threshold"
+          description: "Model recall is {{ $value }}, below the 0.75 threshold. Retraining required."
+
+      - alert: FeatureDriftHigh
+        expr: fraudops_feature_drift_TransactionAmt > 0.10
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Feature drift detected in TransactionAmt"
+          description: "Drift score is {{ $value }}, exceeding the 0.10 limit."
+
+      - alert: APIHighLatency
+        expr: rate(fraudops_request_latency_seconds_sum[5m]) / rate(fraudops_request_latency_seconds_count[5m]) > 1.0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Inference API latency is high"
+          description: "Average latency is {{ $value }}s over the last 5 minutes."
+
+      - alert: APIHighErrorRate
+        expr: rate(fraudops_requests_total{status="error"}[5m]) > 0.05
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Inference API error rate is high"
+          description: "Error rate is {{ $value }} requests/sec."
