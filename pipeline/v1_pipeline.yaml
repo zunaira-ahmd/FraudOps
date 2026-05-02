@@ -1,6 +1,6 @@
 # PIPELINE DEFINITION
 # Name: fraudops-pipeline
-# Description: End-to-end fraud detection pipeline on the IEEE CIS dataset. Local filesystem storage only — no S3 dependency. Covers: data ingestion, validation, preprocessing, feature engineering, training (XGBoost / LightGBM / Hybrid RF), evaluation, SHAP explainability, and conditional deployment.
+# Description: End-to-end fraud detection pipeline on the IEEE CIS dataset. Local filesystem storage only - no S3 dependency. Covers: data ingestion, validation, preprocessing, feature engineering, training (XGBoost / LightGBM / Hybrid RF), evaluation, SHAP explainability, and conditional deployment.
 # Inputs:
 #    artifacts_dir: str [Default: '/home/ubuntu/FraudOps/artifacts']
 #    cost_sensitive: bool [Default: True]
