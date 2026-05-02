@@ -105,7 +105,8 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             cd ~/FraudOps
-            git pull origin main
+            git fetch origin main
+            git reset --hard origin/main
 
             python3 -c "
             import kfp
@@ -125,7 +126,7 @@ jobs:
             )
             "
 
-            sudo systemctl restart FraudOps-inference
+            sudo systemctl restart fraudops-inference || echo "Service fraudops-inference not found, skipping restart"
 
   # ─── STAGE 4: INTELLIGENT TRIGGER ─────────────────────────
   intelligent-retrain:
@@ -144,7 +145,8 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             cd ~/FraudOps
-            git pull origin main
+            git fetch origin main
+            git reset --hard origin/main
 
             python3 -c "
             import kfp
@@ -166,4 +168,4 @@ jobs:
             )
             "
 
-            sudo systemctl restart FraudOps-inference
+            sudo systemctl restart fraudops-inference || echo "Service fraudops-inference not found, skipping restart"
