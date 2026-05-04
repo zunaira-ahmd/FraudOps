@@ -114,8 +114,8 @@ jobs:
             client.create_run_from_pipeline_package(
                 'pipeline/v1_pipeline.yaml',
                 arguments={
-                    'transaction_path': '/home/ubuntu/FraudOps/data/train_transaction.csv',
-                    'identity_path': '/home/ubuntu/FraudOps/data/train_identity.csv',
+                    'transaction_path': 'minio://fraudops-data/train_transaction.csv',
+                    'identity_path': 'minio://fraudops-data/train_identity.csv',
                     'run_id': 'cicd-run-${{ github.run_number }}',
                     'imbalance_strategy': 'smote',
                     'cost_sensitive': True,
@@ -154,8 +154,8 @@ jobs:
             client.create_run_from_pipeline_package(
                 'pipeline/v1_pipeline.yaml',
                 arguments={
-                    'transaction_path': '/home/ubuntu/FraudOps/data/train_transaction.csv',
-                    'identity_path': '/home/ubuntu/FraudOps/data/train_identity.csv',
+                    'transaction_path': 'minio://fraudops-data/train_transaction.csv',
+                    'identity_path': 'minio://fraudops-data/train_identity.csv',
                     'run_id': 'retrain-${{ github.run_number }}',
                     'imbalance_strategy': 'smote',
                     'cost_sensitive': True,
