@@ -236,13 +236,33 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # ── Pre-check: verify EC2 is reachable on port 22 before SSH ──────────
+      - name: Check EC2 SSH reachability
+        id: ec2_check
+        run: |
+          HOST="${{ secrets.EC2_HOST }}"
+          echo "Checking TCP connectivity to ${HOST}:22 (10s timeout)..."
+          if nc -z -w 10 "${HOST}" 22 2>/dev/null; then
+            echo "reachable=true" >> "$GITHUB_OUTPUT"
+            echo "EC2 is reachable — proceeding with deployment."
+          else
+            echo "reachable=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::EC2 host ${HOST} is NOT reachable on port 22."
+            echo "Possible causes: instance is stopped, security group blocks GitHub IPs, or host secret is stale."
+            echo "Skipping SSH deployment — images were already pushed to ECR."
+          fi
+
       - name: SSH — pull latest & trigger Kubeflow pipeline
+        if: steps.ec2_check.outputs.reachable == 'true'
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
-          # Fail fast if any command fails
+          port: 22
+          # Hard timeout: 5 minutes total for all SSH commands
+          command_timeout: 5m
+          # Fail the step if any remote command fails
           script_stop: true
           script: |
             set -euo pipefail
@@ -266,12 +286,12 @@ jobs:
             run = client.create_run_from_pipeline_package(
                 "pipeline/v1_pipeline.yaml",
                 arguments={
-                    "transaction_path": "minio://fraudops-data/train_transaction.csv",
-                    "identity_path":    "minio://fraudops-data/train_identity.csv",
-                    "run_id":           "cicd-run-${{ github.run_number }}",
-                    "imbalance_strategy": "smote",
-                    "cost_sensitive":   True,
-                    "inference_api_url": "http://localhost:8000",
+                    "transaction_path":    "minio://fraudops-data/train_transaction.csv",
+                    "identity_path":       "minio://fraudops-data/train_identity.csv",
+                    "run_id":              "cicd-run-${{ github.run_number }}",
+                    "imbalance_strategy":  "smote",
+                    "cost_sensitive":      True,
+                    "inference_api_url":   "http://localhost:8000",
                 },
                 run_name="cicd-run-${{ github.run_number }}",
                 experiment_name="FraudOps",
@@ -282,6 +302,21 @@ jobs:
             echo "=== Restarting inference service ==="
             sudo systemctl restart fraudops-inference \
               || echo "WARNING: fraudops-inference service not found — skipping restart"
+
+      - name: Deployment status summary
+        if: always()
+        run: |
+          if [ "${{ steps.ec2_check.outputs.reachable }}" == "true" ]; then
+            echo "### Deployment: ATTEMPTED" >> "$GITHUB_STEP_SUMMARY"
+            echo "Docker images pushed to ECR and Kubeflow pipeline trigger sent." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### Deployment: SKIPPED (EC2 unreachable)" >> "$GITHUB_STEP_SUMMARY"
+            echo "Images are in ECR. Start your EC2 instance and re-run this job, or SSH manually:" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo 'ssh ubuntu@<EC2_HOST>' >> "$GITHUB_STEP_SUMMARY"
+            echo 'cd ~/FraudOps && git pull && python3 pipeline/fraud_pipeline.py' >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STAGE 4: Intelligent Retrain Trigger
@@ -311,12 +346,31 @@ jobs:
           echo "  Run number     : ${{ github.run_number }}"
           echo "  Commit SHA     : ${{ github.sha }}"
 
+      # ── Pre-check: verify EC2 is reachable before SSH ─────────────────────
+      - name: Check EC2 SSH reachability
+        id: ec2_check_retrain
+        run: |
+          HOST="${{ secrets.EC2_HOST }}"
+          echo "Checking TCP connectivity to ${HOST}:22 (10s timeout)..."
+          if nc -z -w 10 "${HOST}" 22 2>/dev/null; then
+            echo "reachable=true" >> "$GITHUB_OUTPUT"
+            echo "EC2 is reachable — proceeding with retrain."
+          else
+            echo "reachable=false" >> "$GITHUB_OUTPUT"
+            echo "::error::EC2 host ${HOST} is NOT reachable on port 22."
+            echo "Retrain was triggered by monitoring alert but EC2 is unreachable."
+            echo "Please start the EC2 instance and re-run this workflow manually."
+          fi
+
       - name: SSH — trigger retrain Kubeflow run
+        if: steps.ec2_check_retrain.outputs.reachable == 'true'
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          command_timeout: 5m
           script_stop: true
           script: |
             set -euo pipefail
@@ -371,3 +425,14 @@ jobs:
             echo "=== Restarting inference service ==="
             sudo systemctl restart fraudops-inference \
               || echo "WARNING: fraudops-inference service not found — skipping restart"
+
+      - name: Retrain status summary
+        if: always()
+        run: |
+          REASON="${{ github.event.inputs.trigger_reason }}"
+          if [ "${{ steps.ec2_check_retrain.outputs.reachable }}" == "true" ]; then
+            echo "### Retrain: TRIGGERED (reason: ${REASON})" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### Retrain: SKIPPED — EC2 unreachable (reason: ${REASON})" >> "$GITHUB_STEP_SUMMARY"
+            echo "Start the EC2 instance and re-run this workflow to complete the retrain." >> "$GITHUB_STEP_SUMMARY"
+          fi
