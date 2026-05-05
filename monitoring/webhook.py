@@ -3,7 +3,6 @@ Alert Webhook Server
 Receives alerts from Alertmanager and triggers GitHub Actions workflow.
 """
 
-import os
 import json
 import subprocess
 from http.server import HTTPServer, BaseHTTPRequestHandler
