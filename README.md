@@ -78,7 +78,7 @@ Access the Kubeflow UI via port-forwarding:
 kubectl port-forward -n kubeflow svc/ml-pipeline-ui 8080:80 --address=0.0.0.0 &
 ```
 
-## Project Tasks
+## Implementation Steps:
 1. **Kubeflow Setup:** Provisioning PVs, resource quotas, and namespaces.
 2. **Data Challenges:** Advanced imputation and imbalance handling.
 3. **Model Selection:** Training and evaluating tree-based and hybrid models.
