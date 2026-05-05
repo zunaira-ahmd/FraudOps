@@ -8,9 +8,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libgl1 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install uv
+# Install training dependencies directly (no uv; avoids Python-version mismatch
+# between pyproject.toml requires-python>=3.12 and this 3.11 image).
+RUN pip install --no-cache-dir \
+        pandas \
+        numpy \
+        scikit-learn \
+        xgboost \
+        lightgbm \
+        imbalanced-learn \
+        joblib \
+        boto3 \
+        kfp==2.15.0
 
-COPY pyproject.toml .
-RUN uv sync
+COPY pipeline/ ./pipeline/
 
 CMD ["python3"]

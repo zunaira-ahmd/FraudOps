@@ -36,9 +36,9 @@ class WebhookHandler(BaseHTTPRequestHandler):
 
                 print(f"Alert received: {name}")
 
-                if name in ("FraudRecallDropped", "FeatureDriftHigh"):
+                if name in ("FraudRecallBelowThreshold", "FeatureDriftHigh"):
                     trigger_reason = (
-                        "recall_dropped" if name == "FraudRecallDropped"
+                        "recall_dropped" if name == "FraudRecallBelowThreshold"
                         else "drift_detected"
                     )
                     print(f"Triggering retraining: {trigger_reason}")

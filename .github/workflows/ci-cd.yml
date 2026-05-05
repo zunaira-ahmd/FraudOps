@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       trigger_reason:
-        description: 'Reason for manual trigger'
+        description: 'Reason for manual trigger (manual | recall_dropped | drift_detected)'
         required: false
         default: 'manual'
 
@@ -16,48 +16,169 @@ env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
   ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
 
+# ─────────────────────────────────────────────────────────────────────────────
+# STAGE 1: Continuous Integration
+#   • Triggered by push & pull_request
+#   • Runs linting, unit tests, and data-schema validation
+# ─────────────────────────────────────────────────────────────────────────────
 jobs:
-
-  # ─── STAGE 1: CI ───────────────────────────────────────────
-  lint-and-validate:
-    name: Lint & Validate
+  lint-and-test:
+    name: "Stage 1 — Lint, Unit Tests & Data Validation"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
 
-      - name: Install dependencies
+      # ── Install CI dependencies ────────────────────────────────────────────
+      - name: Install CI dependencies
         run: |
-          pip install flake8 kfp==2.15.0
+          pip install --upgrade pip
+          pip install \
+            flake8 \
+            pytest \
+            pandas \
+            numpy \
+            scikit-learn \
+            kfp==2.15.0
 
-      - name: Lint with flake8
+      # ── Linting ───────────────────────────────────────────────────────────
+      - name: Lint pipeline/ with flake8
         run: |
-          flake8 pipeline/ docker/inference/app.py --max-line-length=120 --ignore=E501,W503 --count
+          flake8 pipeline/ \
+            --max-line-length=120 \
+            --ignore=E501,W503 \
+            --count \
+            --statistics
 
-      - name: Validate pipeline YAML
+      - name: Lint docker/inference/app.py with flake8
         run: |
-          python -c "
-          import yaml, glob, sys
+          flake8 docker/inference/app.py \
+            --max-line-length=120 \
+            --ignore=E501,W503 \
+            --count \
+            --statistics
+
+      - name: Lint monitoring/webhook.py with flake8
+        run: |
+          flake8 monitoring/webhook.py \
+            --max-line-length=120 \
+            --ignore=E501,W503 \
+            --count \
+            --statistics
+
+      # ── Unit tests ────────────────────────────────────────────────────────
+      - name: Run unit tests (pytest)
+        run: |
+          pytest tests/ -v --tb=short --no-header
+
+      # ── Data validation: pipeline YAML schema check ───────────────────────
+      - name: Validate compiled pipeline YAML
+        run: |
+          python - <<'EOF'
+          import yaml, glob, sys, os
+
           files = glob.glob('pipeline/*.yaml')
           if not files:
-              print('No pipeline YAMLs found, skipping')
+              print("No pipeline YAMLs found — skipping YAML validation.")
               sys.exit(0)
-          for f in files:
-              with open(f) as fh:
-                  yaml.safe_load(fh)
-              print(f'OK: {f}')
-          "
 
-  # ─── STAGE 2: BUILD & PUSH TO ECR ─────────────────────────
+          errors = []
+          for f in files:
+              try:
+                  with open(f, encoding='utf-8') as fh:
+                      doc = yaml.safe_load(fh)
+                  if doc is None:
+                      errors.append(f"{f}: parsed as empty/null document")
+                  else:
+                      print(f"OK: {f}")
+              except yaml.YAMLError as exc:
+                  errors.append(f"{f}: {exc}")
+
+          if errors:
+              for e in errors:
+                  print(f"ERROR — {e}", file=sys.stderr)
+              sys.exit(1)
+          EOF
+
+      # ── Data validation: CSV schema + missing-value check ─────────────────
+      - name: Data schema & missing-value validation
+        run: |
+          python - <<'EOF'
+          import os, sys, glob
+          import pandas as pd
+          import numpy as np
+
+          REQUIRED_COLUMNS = ["TransactionID", "isFraud"]
+          MISSING_THRESHOLD = 0.5   # columns with >50% missing values are flagged
+          MAX_FRAUD_RATE    = 0.99
+          MIN_FRAUD_RATE    = 0.001
+
+          csv_files = glob.glob('data/**/*.csv', recursive=True)
+          if not csv_files:
+              print("No CSV files found in data/ — skipping data validation.")
+              sys.exit(0)
+
+          errors = []
+          for path in csv_files:
+              try:
+                  df = pd.read_csv(path, nrows=5000)  # sample first 5k rows for speed
+                  print(f"\nChecking: {path}  ({df.shape[0]} rows x {df.shape[1]} cols)")
+
+                  # Schema check
+                  missing_cols = [c for c in REQUIRED_COLUMNS if c not in df.columns]
+                  if missing_cols:
+                      print(f"  NOTE: Required columns not found: {missing_cols} (may be a non-merged file)")
+
+                  # Missing-value check
+                  high_missing = df.columns[df.isnull().mean() > MISSING_THRESHOLD].tolist()
+                  if high_missing:
+                      print(f"  WARNING: Columns with >{MISSING_THRESHOLD*100:.0f}% missing: {high_missing}")
+
+                  # Fraud-rate sanity (only for files that have the target column)
+                  if "isFraud" in df.columns:
+                      rate = df["isFraud"].mean()
+                      if not (MIN_FRAUD_RATE <= rate <= MAX_FRAUD_RATE):
+                          errors.append(
+                              f"{path}: isFraud rate={rate:.4f} is outside "
+                              f"[{MIN_FRAUD_RATE}, {MAX_FRAUD_RATE}]"
+                          )
+                          print(f"  ERROR: fraud rate {rate:.4f} is out of range")
+                      else:
+                          print(f"  OK: fraud rate = {rate:.4f}")
+
+                  avg_missing = df.isnull().mean().mean() * 100
+                  print(f"  Avg missing = {avg_missing:.2f}%")
+
+              except Exception as exc:
+                  errors.append(f"{path}: {exc}")
+                  print(f"  ERROR reading {path}: {exc}")
+
+          if errors:
+              print("\n--- Data validation FAILED ---", file=sys.stderr)
+              for e in errors:
+                  print(f"  {e}", file=sys.stderr)
+              sys.exit(1)
+
+          print("\nData validation passed.")
+          EOF
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STAGE 2: Build & Push Docker Images
+#   • Runs after Stage 1 passes
+#   • Builds training + inference images and pushes to ECR
+# ─────────────────────────────────────────────────────────────────────────────
   build-and-push:
-    name: Build & Push Docker Images
+    name: "Stage 2 — Build & Push Docker Images"
     runs-on: ubuntu-latest
-    needs: lint-and-validate
+    needs: lint-and-test
+    # Skip build on pull requests to avoid pushing unreviewed images
+    if: github.event_name != 'pull_request'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -69,103 +190,184 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Login to ECR
+      - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set image tags
+        id: tags
+        run: |
+          SHORT_SHA="${GITHUB_SHA::8}"
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "training_image=${ECR_REGISTRY}/fraudops-training" >> "$GITHUB_OUTPUT"
+          echo "inference_image=${ECR_REGISTRY}/fraudops-inference" >> "$GITHUB_OUTPUT"
 
       - name: Build & push training image
         run: |
-          docker build -t $ECR_REGISTRY/fraudops-training:${{ github.sha }} \
-                       -t $ECR_REGISTRY/fraudops-training:latest \
-                       -f docker/training/training.dockerfile .
-          docker push $ECR_REGISTRY/fraudops-training:${{ github.sha }}
-          docker push $ECR_REGISTRY/fraudops-training:latest
+          IMAGE="${{ steps.tags.outputs.training_image }}"
+          docker build \
+            -t "${IMAGE}:${{ steps.tags.outputs.short_sha }}" \
+            -t "${IMAGE}:latest" \
+            -f docker/training/training.dockerfile .
+          docker push "${IMAGE}:${{ steps.tags.outputs.short_sha }}"
+          docker push "${IMAGE}:latest"
 
       - name: Build & push inference image
         run: |
-          docker build -t $ECR_REGISTRY/fraudops-inference:${{ github.sha }} \
-                       -t $ECR_REGISTRY/fraudops-inference:latest \
-                       -f docker/inference/inference.dockerfile .
-          docker push $ECR_REGISTRY/fraudops-inference:${{ github.sha }}
-          docker push $ECR_REGISTRY/fraudops-inference:latest
+          IMAGE="${{ steps.tags.outputs.inference_image }}"
+          docker build \
+            -t "${IMAGE}:${{ steps.tags.outputs.short_sha }}" \
+            -t "${IMAGE}:latest" \
+            -f docker/inference/inference.dockerfile .
+          docker push "${IMAGE}:${{ steps.tags.outputs.short_sha }}"
+          docker push "${IMAGE}:latest"
 
-  # ─── STAGE 3: DEPLOY ───────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# STAGE 3: Continuous Deployment
+#   • Triggers Kubeflow pipeline execution via SSH to EC2
+#   • Restarts the inference API service
+# ─────────────────────────────────────────────────────────────────────────────
   deploy:
-    name: Deploy to EC2
+    name: "Stage 3 — Deploy: Kubeflow Pipeline + Inference API"
     runs-on: ubuntu-latest
+    needs: build-and-push
+    # Only deploy from main branch pushes (not PRs)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: SSH — pull latest & trigger Kubeflow pipeline
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          # Fail fast if any command fails
+          script_stop: true
+          script: |
+            set -euo pipefail
+
+            cd ~/FraudOps
+            git fetch origin main
+            git reset --hard origin/main
+
+            echo "=== Triggering Kubeflow pipeline run ==="
+            python3 - <<'PYEOF'
+            import kfp
+
+            client = kfp.Client(host="http://localhost:8080")
+
+            # Ensure the experiment exists (create if needed)
+            try:
+                experiment = client.get_experiment(experiment_name="FraudOps")
+            except Exception:
+                experiment = client.create_experiment("FraudOps")
+
+            run = client.create_run_from_pipeline_package(
+                "pipeline/v1_pipeline.yaml",
+                arguments={
+                    "transaction_path": "minio://fraudops-data/train_transaction.csv",
+                    "identity_path":    "minio://fraudops-data/train_identity.csv",
+                    "run_id":           "cicd-run-${{ github.run_number }}",
+                    "imbalance_strategy": "smote",
+                    "cost_sensitive":   True,
+                    "inference_api_url": "http://localhost:8000",
+                },
+                run_name="cicd-run-${{ github.run_number }}",
+                experiment_name="FraudOps",
+            )
+            print(f"Pipeline run submitted: {run.run_id}")
+            PYEOF
+
+            echo "=== Restarting inference service ==="
+            sudo systemctl restart fraudops-inference \
+              || echo "WARNING: fraudops-inference service not found — skipping restart"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STAGE 4: Intelligent Retrain Trigger
+#   • Fires ONLY on workflow_dispatch with trigger_reason != 'manual'
+#   • Called by monitoring/webhook.py when Prometheus alerts fire:
+#       - FraudRecallBelowThreshold  → trigger_reason=recall_dropped
+#       - FeatureDriftHigh           → trigger_reason=drift_detected
+#   • Runs the full CI → Build → Deploy chain automatically
+# ─────────────────────────────────────────────────────────────────────────────
+  intelligent-retrain:
+    name: "Stage 4 — Intelligent Retrain (monitoring-triggered)"
+    runs-on: ubuntu-latest
+    # This job is ONLY meaningful when triggered by the webhook (not a human push)
+    if: >
+      github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.trigger_reason != 'manual'
+    # Wait for a clean image build before retraining
     needs: build-and-push
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: SSH & Deploy
+      - name: Log intelligent-trigger context
+        run: |
+          echo "Triggered by monitoring alert"
+          echo "  Trigger reason : ${{ github.event.inputs.trigger_reason }}"
+          echo "  Run number     : ${{ github.run_number }}"
+          echo "  Commit SHA     : ${{ github.sha }}"
+
+      - name: SSH — trigger retrain Kubeflow run
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
+          script_stop: true
           script: |
+            set -euo pipefail
+
             cd ~/FraudOps
             git fetch origin main
             git reset --hard origin/main
 
-            python3 -c "
+            TRIGGER_REASON="${{ github.event.inputs.trigger_reason }}"
+            echo "=== Intelligent retrain triggered: ${TRIGGER_REASON} ==="
+
+            python3 - <<'PYEOF'
             import kfp
-            client = kfp.Client(host='http://localhost:8080')
-            client.create_run_from_pipeline_package(
-                'pipeline/v1_pipeline.yaml',
+
+            trigger_reason = "${{ github.event.inputs.trigger_reason }}"
+
+            # Choose strategy based on trigger reason
+            if trigger_reason == "drift_detected":
+                # Drift: use conservative class_weight strategy, tighter threshold
+                strategy = "class_weight"
+                recall_threshold = 0.70
+            else:
+                # recall_dropped: use SMOTE to maximise minority-class recall
+                strategy = "smote"
+                recall_threshold = 0.75
+
+            client = kfp.Client(host="http://localhost:8080")
+
+            try:
+                experiment = client.get_experiment(experiment_name="FraudOps")
+            except Exception:
+                experiment = client.create_experiment("FraudOps")
+
+            run = client.create_run_from_pipeline_package(
+                "pipeline/v1_pipeline.yaml",
                 arguments={
-                    'transaction_path': 'minio://fraudops-data/train_transaction.csv',
-                    'identity_path': 'minio://fraudops-data/train_identity.csv',
-                    'run_id': 'cicd-run-${{ github.run_number }}',
-                    'imbalance_strategy': 'smote',
-                    'cost_sensitive': True,
-                    'inference_api_url': 'http://localhost:8000',
+                    "transaction_path":   "minio://fraudops-data/train_transaction.csv",
+                    "identity_path":      "minio://fraudops-data/train_identity.csv",
+                    "run_id":             "retrain-${{ github.run_number }}",
+                    "imbalance_strategy": strategy,
+                    "cost_sensitive":     True,
+                    "recall_threshold":   recall_threshold,
+                    "drift_threshold":    0.10,
+                    "inference_api_url":  "http://localhost:8000",
                 },
-                run_name='cicd-run-${{ github.run_number }}',
-                experiment_name='FraudOps',
+                run_name=f"retrain-{trigger_reason}-${{ github.run_number }}",
+                experiment_name="FraudOps",
             )
-            "
+            print(f"Retrain pipeline run submitted: {run.run_id}")
+            PYEOF
 
-            sudo systemctl restart fraudops-inference || echo "Service fraudops-inference not found, skipping restart"
-
-  # ─── STAGE 4: INTELLIGENT TRIGGER ─────────────────────────
-  intelligent-retrain:
-    name: Intelligent Retrain
-    runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.trigger_reason != 'manual'
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: SSH & Retrain
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ubuntu
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            cd ~/FraudOps
-            git fetch origin main
-            git reset --hard origin/main
-
-            python3 -c "
-            import kfp
-            client = kfp.Client(host='http://localhost:8080')
-            client.create_run_from_pipeline_package(
-                'pipeline/v1_pipeline.yaml',
-                arguments={
-                    'transaction_path': 'minio://fraudops-data/train_transaction.csv',
-                    'identity_path': 'minio://fraudops-data/train_identity.csv',
-                    'run_id': 'retrain-${{ github.run_number }}',
-                    'imbalance_strategy': 'smote',
-                    'cost_sensitive': True,
-                    'recall_threshold': 0.75,
-                    'drift_threshold': 0.10,
-                    'inference_api_url': 'http://localhost:8000',
-                },
-                run_name='retrain-${{ github.run_number }}',
-                experiment_name='FraudOps',
-            )
-            "
-
-            sudo systemctl restart fraudops-inference || echo "Service fraudops-inference not found, skipping restart"
+            echo "=== Restarting inference service ==="
+            sudo systemctl restart fraudops-inference \
+              || echo "WARNING: fraudops-inference service not found — skipping restart"
